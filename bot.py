@@ -71,8 +71,8 @@ QUESTIONS_MESSAGE = (
     "1️⃣ F.I.O (Familiya Ism Otasining ismi)\n"
     "2️⃣ Qayerda yashaysiz (manzil)\n"
     "3️⃣ Necha yoshdasiz\n\n"
-    "Misol uchun:\n"
-    "_Aliyev Vali Aliyevich, Toshkent sh., Chilonzor tumani, 25 yosh_"
+    "💡 *Misol uchun:*\n"
+    "`Aliyev Vali Aliyevich, Toshkent sh., Chilonzor tumani, 25 yosh`"
 )
  
 FINAL_MESSAGE = (
@@ -82,9 +82,35 @@ FINAL_MESSAGE = (
     "Ishga kelishingizni so'raymiz! Savollaringiz bo'lsa, yuqoridagi raqamga murojaat qiling."
 )
  
-# Bu yerda har bir foydalanuvchi qaysi bosqichda turganini saqlaymiz
-# (oddiy yechim: xotirada, jiddiy foydalanish uchun keyinroq DB qo'shsa bo'ladi)
-user_state = {}
+# Har bir foydalanuvchi qaysi bosqichda turganini fayl ichida saqlaymiz.
+# Bu Railway/server qayta ishga tushganda (restart, deploy) ham
+# nomzodning holati yo'qolib qolmasligi uchun zarur — agar faqat xotirada
+# (oddiy Python lug'atda) saqlansa, server qayta ishga tushganda hammasi
+# unutiladi va nomzod yana boshidan savol oladi.
+STATE_FILE = os.environ.get("STATE_FILE", "user_state.json")
+ 
+ 
+def load_user_state():
+    """Foydalanuvchilar holatini fayldan o'qiydi. Fayl bo'lmasa, bo'sh lug'at qaytaradi."""
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return {}
+    return {}
+ 
+ 
+def save_user_state(state: dict):
+    """Foydalanuvchilar holatini faylga yozadi."""
+    try:
+        with open(STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f)
+    except OSError as e:
+        logger.error(f"Holatni faylga yozishda xatolik: {e}")
+ 
+ 
+user_state = load_user_state()
  
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -342,7 +368,8 @@ async def send_intro(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id=chat_id, text=QUESTIONS_MESSAGE, parse_mode="Markdown"
     )
  
-    user_state[chat_id] = "waiting_for_answer"
+    user_state[str(chat_id)] = "waiting_for_answer"
+    save_user_state(user_state)
  
  
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -353,7 +380,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Foydalanuvchidan kelgan har qanday matnli xabarni qayta ishlaydi."""
     chat_id = update.effective_chat.id
-    state = user_state.get(chat_id)
+    state = user_state.get(str(chat_id))
  
     if state == "waiting_for_answer":
         # Nomzod javobini qabul qildik -> matnni qismlarga ajratamiz
@@ -364,7 +391,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # ta'sir qilmaydi — nomzod baribir yakuniy ma'lumotlarni oladi)
         send_to_google_sheets(parsed)
  
-        user_state[chat_id] = "done"
+        user_state[str(chat_id)] = "done"
+        save_user_state(user_state)
         await context.bot.send_message(
             chat_id=chat_id, text=FINAL_MESSAGE, parse_mode="Markdown"
         )
