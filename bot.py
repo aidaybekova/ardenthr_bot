@@ -103,25 +103,66 @@ ADDRESS_MARKERS = [
     "область", "ko'chasi", "mavze", "massiv", "kvartal",
 ]
  
+# O'zbekistonning eng ko'p uchraydigan shahar/viloyat nomlari.
+# Nomzod manzilni faqat shahar nomi bilan yozsa ham (masalan "Toshkent"),
+# bot buni manzil deb tanib olishi uchun kerak.
+UZ_CITY_NAMES = [
+    "toshkent", "ташкент", "samarqand", "самарканд", "buxoro", "бухара",
+    "andijon", "андижан", "namangan", "наманган", "farg'ona", "fargona",
+    "фергана", "qarshi", "карши", "termiz", "термез", "termez",
+    "nukus", "нукус", "urganch", "урганч", "urgench", "jizzax", "джизак",
+    "guliston", "гулистан", "navoiy", "навои", "navoi", "xiva", "хива",
+    "kokand", "qoqon", "коканд", "marg'ilon", "margilan", "маргилан",
+    "chirchiq", "чирчик", "angren", "ангрен", "olmaliq", "алмалык",
+    "shahrisabz", "шахрисабз", "denov", "денов", "bekobod", "бекабад",
+]
+ 
  
 def extract_age(text: str):
-    """Matndan yoshni (raqamni) topadi. Topilmasa None qaytaradi."""
-    # "25 yosh", "25 ёш", "25 лет", "25 года" kabi naqshlarni qidiramiz
+    """
+    Matndan yoshni topadi. Ikki holatni qo'llab-quvvatlaydi:
+    1. To'g'ridan-to'g'ri yosh: "25 yosh", "25 лет" va h.k.
+    2. Tug'ilgan sana: "22.03.2008", "22/03/2008", "2008-03-22" va h.k.
+       -> shu sanadan yoshni hisoblab chiqaramiz.
+    Topilmasa None qaytaradi.
+    """
+    # 1. "25 yosh" / "25 лет" kabi to'g'ridan-to'g'ri yosh ko'rsatilgan holat
     match = re.search(r"(\d{1,2})\s*(yosh|ёш|лет|года|лет\.)", text, re.IGNORECASE)
     if match:
         return match.group(1)
  
-    # Aks holda, matndagi 14-80 oralig'idagi har qanday alohida raqamni olamiz
-    numbers = re.findall(r"\b\d{1,2}\b", text)
+    # 2. Tug'ilgan sana holati: DD.MM.YYYY, DD/MM/YYYY yoki YYYY-MM-DD
+    date_match = re.search(r"\b(\d{1,2})[./](\d{1,2})[./](\d{4})\b", text)
+    if not date_match:
+        date_match = re.search(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b", text)
+        if date_match:
+            birth_year = int(date_match.group(1))
+        else:
+            birth_year = None
+    else:
+        birth_year = int(date_match.group(3))
+ 
+    if birth_year and 1940 <= birth_year <= 2015:
+        from datetime import datetime
+        current_year = datetime.now().year
+        calculated_age = current_year - birth_year
+        if 14 <= calculated_age <= 80:
+            return str(calculated_age)
+ 
+    # 3. Aks holda, matndagi 14-80 oralig'idagi har qanday alohida raqamni olamiz
+    #    (lekin sana ichidagi raqamlarni hisobga olmaymiz)
+    text_without_dates = re.sub(r"\d{1,2}[./]\d{1,2}[./]\d{4}", "", text)
+    text_without_dates = re.sub(r"\d{4}-\d{1,2}-\d{1,2}", "", text_without_dates)
+    numbers = re.findall(r"\b\d{1,2}\b", text_without_dates)
     for num in numbers:
         if 14 <= int(num) <= 80:
             return num
     return None
  
  
-def extract_address(text: str, age_str: str):
-    """Matndan manzilga oid qismni topadi (marker so'zlar asosida)."""
-    # Yoshni matndan vaqtincha olib tashlaymiz, aralashmasin
+def extract_address(text: str, age_str: str, full_name: str = ""):
+    """Matndan manzilga oid qismni topadi (marker so'zlar yoki shahar nomlari asosida)."""
+    # Yoshni va tug'ilgan sanani matndan vaqtincha olib tashlaymiz, aralashmasin
     clean_text = text
     if age_str:
         clean_text = re.sub(
@@ -130,25 +171,37 @@ def extract_address(text: str, age_str: str):
             clean_text,
             flags=re.IGNORECASE,
         )
+    clean_text = re.sub(r"\d{1,2}[./]\d{1,2}[./]\d{4}", "", clean_text)
+    clean_text = re.sub(r"\d{4}-\d{1,2}-\d{1,2}", "", clean_text)
+ 
+    all_markers = ADDRESS_MARKERS + UZ_CITY_NAMES
  
     if "," in clean_text:
         parts = re.split(r"[,;\n]", clean_text)
         address_parts = []
         for part in parts:
             part_lower = part.lower()
-            if any(marker in part_lower for marker in ADDRESS_MARKERS):
+            if any(marker in part_lower for marker in all_markers):
                 address_parts.append(part.strip())
         if address_parts:
             return ", ".join(address_parts)
         return ""
  
-    # Vergulsiz holat: birinchi marker so'zdan boshlab oxirigacha olamiz
+    # Vergulsiz holat: birinchi marker so'zdan (yoki shahar nomidan) boshlab
+    # oxirigacha olamiz
+    last_name_word = full_name.split()[-1].lower() if full_name else ""
     words = clean_text.split()
     for i, word in enumerate(words):
         word_clean = word.strip(".,;").lower()
-        if any(word_clean.startswith(marker) for marker in ADDRESS_MARKERS):
-            # markerdan oldingi bir so'zni ham olamiz (masalan "Namangan shahar")
-            start = max(0, i - 1)
+        if any(word_clean.startswith(marker) for marker in all_markers):
+            # markerdan oldingi so'zni ham olamiz, LEKIN u ism qismi bo'lsa olmaymiz
+            # (masalan "Namangan shahar" - "Namangan"ni olamiz, lekin
+            #  "Rustamov Samarqand" - "Rustamov" ismga tegishli bo'lsa olmaymiz)
+            prev_word = words[i - 1].strip(".,;").lower() if i > 0 else ""
+            if i > 0 and prev_word != last_name_word:
+                start = i - 1
+            else:
+                start = i
             return " ".join(words[start:]).strip(" .,;")
  
     return ""
@@ -156,6 +209,8 @@ def extract_address(text: str, age_str: str):
  
 def extract_full_name(text: str, address_str: str, age_str: str):
     """Qolgan matnni (manzil va yoshdan tashqari) F.I.O sifatida oladi."""
+    all_markers = ADDRESS_MARKERS + UZ_CITY_NAMES
+ 
     # Avval vergul bilan ajratilgan holatni tekshiramiz (eng aniq holat)
     if "," in text:
         first_part = text.split(",")[0].strip()
@@ -163,14 +218,15 @@ def extract_full_name(text: str, address_str: str, age_str: str):
             return first_part
  
     # Vergulsiz holat: matn boshidagi katta harf bilan boshlangan so'zlarni
-    # (odatda 2-3 ta) ism-familiya deb olamiz, manzil-marker so'zigacha
+    # (odatda 2-3 ta) ism-familiya deb olamiz, manzil-marker so'zi yoki
+    # shahar nomigacha
     words = text.split()
     name_words = []
     for word in words:
         word_clean = word.strip(".,;")
         if not word_clean:
             continue
-        if any(word_clean.lower().startswith(marker) for marker in ADDRESS_MARKERS):
+        if any(word_clean.lower().startswith(marker) for marker in all_markers):
             break
         if re.match(r"^\d", word_clean):
             break
@@ -190,7 +246,7 @@ def extract_full_name(text: str, address_str: str, age_str: str):
         word_clean = word.strip(".,;")
         if not word_clean:
             continue
-        if any(word_clean.lower().startswith(marker) for marker in ADDRESS_MARKERS):
+        if any(word_clean.lower().startswith(marker) for marker in all_markers):
             break
         if re.match(r"^\d", word_clean):
             break
@@ -232,8 +288,9 @@ def parse_candidate_answer(text: str):
     Hech narsa yo'qolmasligi uchun, asl matn alohida saqlanadi (raw_text).
     """
     age = extract_age(text) or ""
-    address = extract_address(text, age)
-    full_name = extract_full_name(text, address, age)
+    full_name_raw = extract_full_name(text, "", age)
+    address = extract_address(text, age, full_name_raw)
+    full_name = full_name_raw
  
     full_name = normalize_case(full_name)
     address = normalize_case(address) if address else ""
@@ -334,4 +391,3 @@ def main():
  
 if __name__ == "__main__":
     main()
- 
