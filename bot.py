@@ -182,7 +182,48 @@ def extract_full_name(text: str, address_str: str, age_str: str):
     if name_words:
         return " ".join(name_words)
  
+    # Zaxira holat: katta harf bilan boshlangan so'z topilmasa
+    # (masalan, hammasi kichik harfda yozilgan bo'lsa), birinchi 2-3 so'zni
+    # ism deb olamiz, manzil-marker yoki raqamgacha.
+    fallback_words = []
+    for word in words:
+        word_clean = word.strip(".,;")
+        if not word_clean:
+            continue
+        if any(word_clean.lower().startswith(marker) for marker in ADDRESS_MARKERS):
+            break
+        if re.match(r"^\d", word_clean):
+            break
+        fallback_words.append(word_clean)
+        if len(fallback_words) >= 3:
+            break
+ 
+    if fallback_words:
+        return " ".join(fallback_words)
+ 
     return "(aniqlanmadi)"
+ 
+ 
+def normalize_case(text: str):
+    """
+    Har bir so'zni 'Katta harf + qolgani kichik' qilib qaytaradi.
+    Apostrofli so'zlarni ham to'g'ri ishlaydi (masalan: O'zbekiston, Farg'ona).
+    Bo'sh matn yoki '(aniqlanmadi)' bo'lsa o'zgarishsiz qaytadi.
+    """
+    if not text or text == "(aniqlanmadi)":
+        return text
+ 
+    words = text.split()
+    normalized_words = []
+    for word in words:
+        # Ko'p chiziqli so'zlarni ("12-uy" kabi) buzmaslik uchun,
+        # faqat harflardan boshlangan qismni katta qilamiz.
+        if word and word[0].isalpha():
+            normalized_words.append(word[0].upper() + word[1:].lower())
+        else:
+            normalized_words.append(word)
+ 
+    return " ".join(normalized_words)
  
  
 def parse_candidate_answer(text: str):
@@ -193,6 +234,9 @@ def parse_candidate_answer(text: str):
     age = extract_age(text) or ""
     address = extract_address(text, age)
     full_name = extract_full_name(text, address, age)
+ 
+    full_name = normalize_case(full_name)
+    address = normalize_case(address) if address else ""
  
     return {
         "full_name": full_name,
