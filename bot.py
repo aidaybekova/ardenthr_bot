@@ -37,7 +37,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "PASTE_YOUR_TOKEN_HERE")
  
 COMPANY_NAME = "N'MEDOV"
 VACANCY_NAME = "Qadoqlovchi / Oddiy ishchi"
-LOCATION_TEXT = "N'MEDOV ishlab chiqarish sexi"
+LOCATION_TEXT = "N'MEDOV ishlab chiqarish zavodi"
 LOCATION_LAT = 41.35638
 LOCATION_LON = 69.265077
 MAPS_LINK = "https://www.google.com/maps/place/41%C2%B021'23.0%22N+69%C2%B015'54.3%22E/@41.35638,69.265077,16z"
